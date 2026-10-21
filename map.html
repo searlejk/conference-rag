@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Speaker Map - Conference Q&A</title>
+    <link rel="stylesheet" href="styles.css">
+    <style>
+        .map-page { max-width: 1100px; margin: 0 auto; padding: var(--spacing-lg) var(--spacing-sm); }
+        .map-page h1 { margin-bottom: 0.25rem; }
+        .map-nav { margin-bottom: var(--spacing-sm); font-size: 0.9rem; }
+        .map-nav a { color: var(--primary); }
+        .map-controls { display: flex; flex-wrap: wrap; gap: var(--spacing-xs); align-items: center; margin: var(--spacing-sm) 0; }
+        .map-controls label { font-size: 0.85rem; color: var(--text-muted); display: flex; gap: 0.35rem; align-items: center; }
+        .map-controls select { background: var(--surface); color: var(--text); border: 1px solid var(--surface-light); border-radius: var(--radius-sm); padding: 0.35rem 0.5rem; }
+        #map { width: 100%; height: 680px; background: var(--surface); border-radius: var(--radius-lg); }
+        .leader-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: var(--spacing-xs); margin-top: var(--spacing-md); }
+        .leader { background: var(--surface); border: 1px solid var(--surface-light); border-radius: var(--radius-md); padding: 0.6rem 0.8rem; cursor: pointer; text-align: left; color: var(--text); font: inherit; }
+        .leader.active { border-color: var(--primary); }
+        .leader small { display: block; color: var(--text-muted); font-size: 0.75rem; margin-top: 0.15rem; }
+        .map-note { color: var(--text-muted); font-size: 0.85rem; line-height: 1.6; margin-top: var(--spacing-md); }
+    </style>
+</head>
+
+<body>
+    <div class="map-page">
+        <div class="map-nav"><a href="./">← Back to Conference Q&A</a></div>
+        <h1>Speaker map</h1>
+        <p class="subtitle">Where each speaker's talks fall among the subjects of General Conference, 2020–2025</p>
+
+        <div class="map-controls">
+            <label>Show
+                <select id="speaker-filter">
+                    <option value="leaders">First Presidency and the Twelve</option>
+                    <option value="all">All speakers</option>
+                </select>
+            </label>
+            <label><input type="checkbox" id="show-talks" checked> Individual talks</label>
+        </div>
+
+        <div id="map"></div>
+        <div class="leader-list" id="leader-list"></div>
+
+        <p class="map-note">
+            Each small dot is one talk, colored by topic. Each talk's meaning (a 1,536-number vector built
+            from its nouns, verbs, and adjectives plus its full text) is squeezed onto this 2D map with UMAP,
+            so talks about similar things sit near each other. A speaker's diamond is placed at the average
+            meaning of all their talks. Distances are approximate — UMAP keeps neighborhoods, not exact
+            distances — and speakers with few talks in these years (shown in the list) have less certain positions.
+            Leadership as sustained in October 2026.
+        </p>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/plotly.js/2.27.0/plotly.min.js"></script>
+    <script>
+        const TOPIC_COLORS = ['#3ecf8e', '#6366f1', '#f59e0b', '#ec4899', '#ef4444', '#14b8a6', '#a855f7', '#38bdf8', '#eab308'];
+        const ROLE_STYLE = {
+            'First Presidency': { color: '#fbbf24', size: 18 },
+            'Quorum of the Twelve': { color: '#f1f5f9', size: 14 },
+            'Other': { color: '#94a3b8', size: 7 }
+        };
+        let DATA, selected = null;
+
+        const lastName = name => name.split(' ').slice(-1)[0];
+
+        function render() {
+            const showTalks = document.getElementById('show-talks').checked;
+            const filter = document.getElementById('speaker-filter').value;
+            const traces = [];
+
+            if (showTalks) {
+                DATA.clusters.forEach(c => {
+                    const talks = DATA.talks.filter(t => t.cluster === c.id);
+                    const dim = selected !== null;
+                    traces.push({
+                        type: 'scatter', mode: 'markers', name: c.label,
+                        x: talks.map(t => t.x), y: talks.map(t => t.y),
+                        text: talks.map(t => `<b>${t.title}</b><br>${t.speaker} · ${t.season} ${t.year}<br><i>${c.label}</i>`),
+                        hovertemplate: '%{text}<extra></extra>',
+                        customdata: talks.map(t => t.url),
+                        marker: { size: 6, color: TOPIC_COLORS[c.id], opacity: dim ? 0.15 : 0.55 }
+                    });
+                });
+            }
+
+            // Highlight the selected leader's own talks
+            if (selected !== null) {
+                const mine = DATA.talks.filter(t => t.speaker === selected);
+                traces.push({
+                    type: 'scatter', mode: 'markers', name: `${selected}'s talks`,
+                    x: mine.map(t => t.x), y: mine.map(t => t.y),
+                    text: mine.map(t => `<b>${t.title}</b><br>${t.season} ${t.year}<br><i>${DATA.clusters[t.cluster].label}</i>`),
+                    hovertemplate: '%{text}<extra></extra>',
+                    customdata: mine.map(t => t.url),
+                    marker: { size: 11, color: mine.map(t => TOPIC_COLORS[t.cluster]), line: { width: 1.5, color: '#f1f5f9' } }
+                });
+            }
+
+            const speakers = DATA.speakers.filter(s => filter === 'all' || s.role !== 'Other');
+            ['Other', 'Quorum of the Twelve', 'First Presidency'].forEach(role => {
+                const group = speakers.filter(s => s.role === role);
+                if (!group.length) return;
+                const st = ROLE_STYLE[role];
+                traces.push({
+                    type: 'scatter', mode: role === 'Other' ? 'markers' : 'markers+text', name: role,
+                    x: group.map(s => s.x), y: group.map(s => s.y),
+                    text: group.map(s => role === 'Other' ? s.name : lastName(s.name)),
+                    hovertext: group.map(s => `<b>${s.name}</b><br>${role}<br>${s.talks} talk${s.talks > 1 ? 's' : ''} in 2020–2025`),
+                    hovertemplate: '%{hovertext}<extra></extra>',
+                    textposition: 'top center', textfont: { color: st.color, size: 12 },
+                    marker: {
+                        symbol: 'diamond', size: st.size, color: st.color,
+                        opacity: selected === null || group.some(s => s.name === selected) ? 1 : 0.35,
+                        line: { width: 1, color: '#0f172a' }
+                    }
+                });
+            });
+
+            const annotations = DATA.clusters.map(c => ({
+                x: c.x, y: c.y, text: c.label, showarrow: false,
+                font: { color: TOPIC_COLORS[c.id], size: 12 },
+                bgcolor: 'rgba(15, 23, 42, 0.7)', borderpad: 3
+            }));
+
+            Plotly.react('map', traces, {
+                paper_bgcolor: 'rgba(0,0,0,0)', plot_bgcolor: 'rgba(0,0,0,0)',
+                font: { color: '#f1f5f9' }, margin: { l: 10, r: 10, t: 10, b: 10 },
+                xaxis: { visible: false }, yaxis: { visible: false },
+                showlegend: true, legend: { orientation: 'h', y: -0.02, font: { size: 11 } },
+                hoverlabel: { bgcolor: '#1e293b', bordercolor: '#334155' },
+                annotations
+            }, { responsive: true, displaylogo: false });
+        }
+
+        function renderLeaders() {
+            const leaders = DATA.speakers.filter(s => s.role !== 'Other').sort((a, b) => a.order - b.order);
+            const topTopic = name => {
+                const counts = {};
+                DATA.talks.filter(t => t.speaker === name).forEach(t => counts[t.cluster] = (counts[t.cluster] || 0) + 1);
+                const best = Object.entries(counts).sort((a, b) => b[1] - a[1])[0];
+                return best ? `${DATA.clusters[best[0]].label} (${best[1]} of ${leaders.find(l => l.name === name).talks})` : '';
+            };
+            const list = document.getElementById('leader-list');
+            list.innerHTML = '';
+            leaders.forEach(s => {
+                const btn = document.createElement('button');
+                btn.className = 'leader' + (selected === s.name ? ' active' : '');
+                btn.innerHTML = `${s.name}<small>${s.role} · most often: ${topTopic(s.name)}</small>`;
+                btn.onclick = () => { selected = selected === s.name ? null : s.name; renderLeaders(); render(); };
+                list.appendChild(btn);
+            });
+        }
+
+        fetch('map_data.json')
+            .then(r => r.json())
+            .then(data => {
+                DATA = data;
+                renderLeaders();
+                render();
+                document.getElementById('map').on('plotly_click', e => {
+                    const url = e.points[0].customdata;
+                    if (url) window.open(url, '_blank');
+                });
+            });
+
+        document.getElementById('speaker-filter').addEventListener('change', render);
+        document.getElementById('show-talks').addEventListener('change', render);
+    </script>
+</body>
+
+</html>
