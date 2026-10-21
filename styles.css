@@ -637,6 +637,21 @@ input:focus {
     margin-bottom: 0.5rem;
 }
 
+.signal-badges {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.35rem;
+}
+
+.signal-badge {
+    padding: 0.1rem 0.5rem;
+    border-radius: 999px;
+    font-size: 0.68rem;
+    color: var(--text-muted);
+    border: 1px solid var(--surface-light);
+    white-space: nowrap;
+}
+
 .result-sentences {
     font-size: 0.9rem;
     color: var(--text);

@@ -530,11 +530,9 @@ async function askQuestion() {
         // Step 1: Get embedding
         const embedding = await getEmbedding(question);
 
-        // Step 2: Search for similar sentences
-        const results = await searchSentences(embedding);
-
-        // Step 3: Group by talk (with similarity scores and URLs)
-        const topTalks = groupByTalk(results);
+        // Steps 2-3: Hybrid search ranks whole talks by three signals at once
+        // (talk concepts + sentence meaning + exact keywords), fused in SQL
+        const topTalks = await searchHybrid(question, embedding);
 
         // Step 4: Fetch full talk text for richer context
         const enrichedTalks = await fetchFullTalkText(topTalks);
@@ -542,8 +540,8 @@ async function askQuestion() {
         // Step 5: Generate answer with full context
         const answer = await generateAnswer(question, enrichedTalks);
 
-        // Compute overall similarity (weighted avg across source talks)
-        const overallSimilarity = topTalks.reduce((sum, t) => sum + t.avgSimilarity, 0) / topTalks.length;
+        // Overall similarity: average of each source talk's best-matching sentence
+        const overallSimilarity = topTalks.reduce((sum, t) => sum + t.similarity, 0) / topTalks.length;
         const overallBadge = similarityBadge(overallSimilarity);
         const simClass = overallSimilarity >= 0.70 ? 'similarity-high'
             : overallSimilarity >= 0.40 ? 'similarity-mid' : 'similarity-low';
@@ -559,12 +557,13 @@ async function askQuestion() {
         // Show source talks with per-talk similarity badges and links
         html += '<div class="result-sources"><strong>Sources:</strong></div>';
         for (const talk of topTalks) {
-            const talkBadge = similarityBadge(talk.avgSimilarity);
+            const talkBadge = similarityBadge(talk.similarity);
             html += `<div class="result-card result-source">
                 <div class="result-card-header">
                     <div>
                         <div class="result-title"><a href="${escapeHtml(talk.url)}" target="_blank" class="result-title-link">${escapeHtml(talk.title)}</a></div>
                         <div class="result-speaker">by ${escapeHtml(talk.speaker)}</div>
+                        <div class="signal-badges">${signalBadges(talk)}</div>
                     </div>
                     ${talkBadge}
                 </div>
@@ -609,40 +608,44 @@ async function searchSentences(embedding) {
     return data;
 }
 
-// Group search results by talk, computing average similarity per talk
-function groupByTalk(sentences) {
-    const talkMap = {};
+// Hybrid search: rank whole talks by concept, sentence, and keyword signals.
+// Replaces grouping sentences by AVERAGE similarity, which let one lucky
+// sentence outrank a talk that was about the topic throughout.
+async function searchHybrid(question, embedding) {
+    if (!supabaseClient) throw new Error('Supabase not configured');
 
-    for (const sent of sentences) {
-        if (!talkMap[sent.talk_id]) {
-            talkMap[sent.talk_id] = {
-                talk_id: sent.talk_id,
-                title: sent.title,
-                speaker: sent.speaker,
-                url: sent.url,
-                sentences: [],
-                totalSimilarity: 0
-            };
-        }
-        talkMap[sent.talk_id].sentences.push(sent.text);
-        talkMap[sent.talk_id].totalSimilarity += sent.similarity;
-    }
+    const { data, error } = await supabaseClient.rpc('hybrid_search', {
+        query_text: question,
+        query_embedding: embedding,
+        match_count: 3
+    });
 
-    return Object.values(talkMap)
-        .sort((a, b) => b.totalSimilarity / b.sentences.length - a.totalSimilarity / a.sentences.length)
-        .slice(0, 3)
-        .map(talk => ({
-            talk_id: talk.talk_id,
-            title: talk.title,
-            speaker: talk.speaker,
-            url: talk.url,
-            text: talk.sentences.join(' '),
-            // TODO: Is average similarity the right metric? Alternatives worth researching:
-            // - Max similarity (best single match per talk)
-            // - Average of top-3 sentences (reduces noise from weak matches)
-            // - Weighted by sentence count (rewards talks with more matches)
-            avgSimilarity: talk.totalSimilarity / talk.sentences.length
-        }));
+    if (error) throw new Error(`Hybrid search failed: ${error.message}`);
+
+    return data.map(row => ({
+        talk_id: row.talk_id,
+        title: row.title,
+        speaker: row.speaker,
+        url: row.url,
+        text: row.best_sentence,
+        similarity: row.best_similarity ?? 0,
+        conceptRank: row.concept_rank,
+        sentenceRank: row.sentence_rank,
+        keywordRank: row.keyword_rank
+    }));
+}
+
+// Show which retrieval signals found a talk, and at what rank
+function signalBadges(talk) {
+    const signals = [
+        ['Topic', talk.conceptRank],
+        ['Passage', talk.sentenceRank],
+        ['Keywords', talk.keywordRank]
+    ];
+    return signals
+        .filter(([, rank]) => rank)
+        .map(([label, rank]) => `<span class="signal-badge">${label} #${rank}</span>`)
+        .join('');
 }
 
 // Fetch full talk text by querying all sentences for given talk_ids, ordered by sentence_num.
