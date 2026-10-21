@@ -20,6 +20,10 @@
         .leader.active { border-color: var(--primary); }
         .leader small { display: block; color: var(--text-muted); font-size: 0.75rem; margin-top: 0.15rem; }
         .map-note { color: var(--text-muted); font-size: 0.85rem; line-height: 1.6; margin-top: var(--spacing-md); }
+        /* Embedded in the main page: drop the page chrome, keep the map */
+        body.embed { background: transparent; }
+        body.embed .map-page { padding: 0; }
+        body.embed .map-nav, body.embed h1, body.embed .subtitle { display: none; }
     </style>
 </head>
 
@@ -61,6 +65,7 @@
             'Other': { color: '#94a3b8', size: 7 }
         };
         let DATA, selected = null;
+        if (new URLSearchParams(location.search).has('embed')) document.body.classList.add('embed');
 
         const lastName = name => name.split(' ').slice(-1)[0];
 
