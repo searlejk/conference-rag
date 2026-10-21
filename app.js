@@ -481,6 +481,7 @@ async function semanticSearch() {
     try {
         // Step 1: Get embedding
         const embedding = await getEmbedding(query);
+        showQuestionOnMap(query, embedding);
 
         // Step 2: Search for similar sentences
         const results = await searchSentences(embedding);
@@ -529,6 +530,7 @@ async function askQuestion() {
     try {
         // Step 1: Get embedding
         const embedding = await getEmbedding(question);
+        showQuestionOnMap(question, embedding);
 
         // Steps 2-3: Hybrid search ranks whole talks by three signals at once
         // (talk concepts + sentence meaning + exact keywords), fused in SQL
@@ -555,6 +557,7 @@ async function askQuestion() {
         </div>`;
 
         // Show source talks with per-talk similarity badges and links
+        html += '<div class="result-sources"><a href="#map-frame" class="nav-link">★ See where your question lands on the speaker map ↓</a></div>';
         html += '<div class="result-sources"><strong>Sources:</strong></div>';
         for (const talk of topTalks) {
             const talkBadge = similarityBadge(talk.similarity);
@@ -633,6 +636,22 @@ async function searchHybrid(question, embedding) {
         sentenceRank: row.sentence_rank,
         keywordRank: row.keyword_rank
     }));
+}
+
+// Mark the question on the speaker map (runs alongside the search; failures are ignored)
+async function showQuestionOnMap(question, embedding) {
+    try {
+        const { data, error } = await supabaseClient.rpc('nearest_talks', {
+            query_embedding: embedding,
+            match_count: 5
+        });
+        const mapWindow = document.getElementById('map-frame')?.contentWindow;
+        if (!error && data?.length && mapWindow?.showQuestion) {
+            mapWindow.showQuestion(question, data);
+        }
+    } catch (err) {
+        console.warn('Could not place question on map:', err.message);
+    }
 }
 
 // Show which retrieval signals found a talk, and at what rank

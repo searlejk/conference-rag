@@ -5,7 +5,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Speaker Map - Conference Q&A</title>
-    <link rel="stylesheet" href="styles.css">
+    <link rel="stylesheet" href="styles.css?v=20261021d">
     <style>
         .map-page { max-width: 1100px; margin: 0 auto; padding: var(--spacing-lg) var(--spacing-sm); }
         .map-page h1 { margin-bottom: 0.25rem; }
@@ -43,6 +43,7 @@
             <label><input type="checkbox" id="show-talks" checked> Individual talks</label>
         </div>
 
+        <div id="question-info" style="display: none; background: var(--surface); border: 1px solid #f43f5e; border-radius: var(--radius-md); padding: 0.6rem 0.8rem; margin-bottom: var(--spacing-xs); font-size: 0.9rem; line-height: 1.5;"></div>
         <div id="map"></div>
         <div class="leader-list" id="leader-list"></div>
 
@@ -64,8 +65,40 @@
             'Quorum of the Twelve': { color: '#f1f5f9', size: 14 },
             'Other': { color: '#94a3b8', size: 7 }
         };
-        let DATA, selected = null;
+        let DATA, selected = null, question = null, pendingQuestion = null;
         if (new URLSearchParams(location.search).has('embed')) document.body.classList.add('embed');
+
+        // Place a question on the map. UMAP's model lives in Python, so the browser can't
+        // project a new vector; instead we put the question at the similarity-weighted
+        // average position of its nearest talks (roughly how UMAP places new points too).
+        window.showQuestion = function (text, neighbors) {
+            if (!DATA) { pendingQuestion = [text, neighbors]; return; }
+            const byId = Object.fromEntries(DATA.talks.map(t => [t.id, t]));
+            const near = neighbors.filter(n => byId[n.talk_id]).map(n => ({ ...byId[n.talk_id], similarity: n.similarity }));
+            if (!near.length) return;
+            const weights = near.map(n => Math.pow(n.similarity, 6));
+            const total = weights.reduce((a, b) => a + b, 0);
+            question = {
+                text,
+                near,
+                x: near.reduce((s, n, i) => s + n.x * weights[i], 0) / total,
+                y: near.reduce((s, n, i) => s + n.y * weights[i], 0) / total
+            };
+            renderQuestionInfo();
+            render();
+        };
+
+        function renderQuestionInfo() {
+            const box = document.getElementById('question-info');
+            if (!question) { box.style.display = 'none'; return; }
+            const topics = {};
+            question.near.forEach(n => topics[n.cluster] = (topics[n.cluster] || 0) + 1);
+            const topTopic = DATA.clusters[Object.entries(topics).sort((a, b) => b[1] - a[1])[0][0]].label;
+            box.style.display = 'block';
+            box.innerHTML = `<strong>★ Your question:</strong> “${question.text.replace(/</g, '&lt;')}”<br>
+                <small>Lands nearest <em>${topTopic}</em>, among: ${question.near.map(n =>
+                    `${n.title.replace(/</g, '&lt;')} (${Math.round(n.similarity * 100)}%)`).join(' · ')}</small>`;
+        }
 
         const lastName = name => name.split(' ').slice(-1)[0];
 
@@ -122,6 +155,30 @@
                 });
             });
 
+            if (question) {
+                const lx = [], ly = [];
+                question.near.forEach(n => { lx.push(question.x, n.x, null); ly.push(question.y, n.y, null); });
+                traces.push({
+                    type: 'scatter', mode: 'lines', name: 'Nearest talks', hoverinfo: 'skip',
+                    x: lx, y: ly, line: { color: '#f43f5e', width: 1.5, dash: 'dot' }
+                });
+                traces.push({
+                    type: 'scatter', mode: 'markers', showlegend: false,
+                    x: question.near.map(n => n.x), y: question.near.map(n => n.y),
+                    text: question.near.map(n => `<b>${n.title}</b><br>${n.speaker}<br>${Math.round(n.similarity * 100)}% similar to your question`),
+                    hovertemplate: '%{text}<extra></extra>',
+                    customdata: question.near.map(n => n.url),
+                    marker: { size: 10, color: 'rgba(0,0,0,0)', line: { width: 2, color: '#f43f5e' } }
+                });
+                traces.push({
+                    type: 'scatter', mode: 'markers+text', name: 'Your question',
+                    x: [question.x], y: [question.y], text: ['Your question'],
+                    hovertext: [question.text], hovertemplate: '%{hovertext}<extra></extra>',
+                    textposition: 'bottom center', textfont: { color: '#f43f5e', size: 13 },
+                    marker: { symbol: 'star', size: 22, color: '#f43f5e', line: { width: 1, color: '#0f172a' } }
+                });
+            }
+
             const annotations = DATA.clusters.map(c => ({
                 x: c.x, y: c.y, text: c.label, showarrow: false,
                 font: { color: TOPIC_COLORS[c.id], size: 11 },
@@ -163,6 +220,7 @@
                 DATA = data;
                 renderLeaders();
                 render();
+                if (pendingQuestion) window.showQuestion(...pendingQuestion);
                 document.getElementById('map').on('plotly_click', e => {
                     const url = e.points[0].customdata;
                     if (url) window.open(url, '_blank');

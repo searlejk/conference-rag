@@ -5,7 +5,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Supabase RAG - Conference Q&A</title>
-    <link rel="stylesheet" href="styles.css">
+    <link rel="stylesheet" href="styles.css?v=20261021d">
 </head>
 
 <body>
@@ -144,7 +144,7 @@
                 <p class="panel-description">Every talk placed by meaning with UMAP, colored by topic. Diamonds mark the
                     First Presidency and the Twelve at the average meaning of their talks. Click a leader below the map
                     to highlight their talks.</p>
-                <iframe src="map.html?embed=1" class="map-frame" title="Speaker map" loading="lazy"></iframe>
+                <iframe src="map.html?embed=1&v=20261021d" id="map-frame" class="map-frame" title="Speaker map" style="width: 100%; height: 1150px; border: none;"></iframe>
             </div>
         </div>
     </div>
@@ -158,10 +158,10 @@
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 
     <!-- Configuration (Students will replace this) -->
-    <script src="config.js"></script>
+    <script src="config.js?v=20261021d"></script>
 
     <!-- Main Application Logic -->
-    <script src="app.js"></script>
+    <script src="app.js?v=20261021d"></script>
 </body>
 
 </html>

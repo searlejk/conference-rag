@@ -97,6 +97,7 @@ def main():
 
     data = {
         'talks': [{
+            'id': i,
             'x': round(float(xy[n, 0]), 3), 'y': round(float(xy[n, 1]), 3),
             'title': meta[i]['title'], 'speaker': clean_name(meta[i]['speaker']),
             'year': meta[i]['year'], 'season': meta[i]['season'],

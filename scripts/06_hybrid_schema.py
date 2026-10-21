@@ -21,6 +21,10 @@ with open('config.secret.json', 'r') as f:
     secrets = json.load(f)
 
 SCHEMA_SQL = """
+-- Touch a vector first so pgvector's library loads in this connection;
+-- until it does, the hnsw.ef_search setting used below doesn't exist yet
+SELECT '[1,1]'::vector <=> '[1,1]'::vector;
+
 -- ============================================
 -- 1. Talk-level concept vectors (one row per talk)
 -- ============================================
@@ -138,6 +142,22 @@ AS $$
   FROM fused f
   JOIN talk_concepts tc ON tc.talk_id = f.talk_id
   ORDER BY f.score DESC;
+$$;
+
+-- ============================================
+-- 4. Nearest talks to a question (places the question on the speaker map)
+-- ============================================
+CREATE OR REPLACE FUNCTION nearest_talks(
+  query_embedding vector(1536),
+  match_count int DEFAULT 5
+)
+RETURNS TABLE (talk_id uuid, similarity float)
+LANGUAGE sql STABLE
+AS $$
+  SELECT tc.talk_id, 1 - (tc.embedding <=> query_embedding)
+  FROM talk_concepts tc
+  ORDER BY tc.embedding <=> query_embedding
+  LIMIT match_count;
 $$;
 """
 
