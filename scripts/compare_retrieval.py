@@ -57,10 +57,23 @@ def hybrid(q, emb):
     return [f"{r['title']} — {r['speaker'][3:]} [{fmt(r)}]" for r in rows], ms
 
 
+def pilot(q, emb):
+    """Same hybrid search over the compact format: 8-sentence passages, halfvec vectors."""
+    t0 = time.time()
+    rows = db.rpc('hybrid_search_passages', {'query_text': q, 'query_embedding': emb, 'match_count': 3}).execute().data
+    ms = (time.time() - t0) * 1000
+    fmt = lambda r: f"c{r['concept_rank'] or '-'} p{r['passage_rank'] or '-'} k{r['keyword_rank'] or '-'}"
+    return [f"{r['title']} — {r['speaker'][3:]} [{fmt(r)}]" for r in rows], ms
+
+
 for q in QUESTIONS:
     emb = cache[q]
     h, ms = hybrid(q, emb)
+    p, pms = pilot(q, emb)
     print(f"\nQ: {q}")
     print("  ORIGINAL:"); [print(f"    {i}. {t}") for i, t in enumerate(original(emb), 1)]
     print(f"  HYBRID ({ms:.0f} ms):"); [print(f"    {i}. {t}") for i, t in enumerate(h, 1)]
-print("\n[c/s/k = rank from concept / sentence / keyword signal; '-' = not found by that signal]")
+    print(f"  PILOT passages+halfvec ({pms:.0f} ms):"); [print(f"    {i}. {t}") for i, t in enumerate(p, 1)]
+    overlap = len({t.split(' [')[0] for t in h} & {t.split(' [')[0] for t in p})
+    print(f"  → pilot shares {overlap}/3 talks with hybrid")
+print("\n[c/s/p/k = rank from concept / sentence / passage / keyword signal; '-' = not found by that signal]")
