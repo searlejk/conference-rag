@@ -119,8 +119,8 @@
 
             const annotations = DATA.clusters.map(c => ({
                 x: c.x, y: c.y, text: c.label, showarrow: false,
-                font: { color: TOPIC_COLORS[c.id], size: 12 },
-                bgcolor: 'rgba(15, 23, 42, 0.7)', borderpad: 3
+                font: { color: TOPIC_COLORS[c.id], size: 11 },
+                bgcolor: 'rgba(15, 23, 42, 0.35)', borderpad: 2, opacity: 0.85
             }));
 
             Plotly.react('map', traces, {
